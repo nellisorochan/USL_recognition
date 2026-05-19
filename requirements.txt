@@ -2,6 +2,6 @@ streamlit
 numpy
 tensorflow-cpu
 mediapipe
-opencv-python-headless==4.10.0.84
 av
-streamlit_webrtc
+streamlit-webrtc==0.71.0
+opencv-contrib-python-headless
