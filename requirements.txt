@@ -1,8 +1,5 @@
 streamlit
-pandas
-numpy
-plotly
-requests
-opencv-python-headless
 mediapipe
+numpy
 tensorflow-cpu
+opencv-python-headless
