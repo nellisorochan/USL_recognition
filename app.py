@@ -1,4 +1,5 @@
 import streamlit as st
+import time
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -77,6 +78,11 @@ def add_velocity(seq_array):
 def video_callback(frame):
     img = frame.to_ndarray(format="bgr24")
     img = cv2.flip(img, 1)
+
+    current_time = time.time()
+    if current_time - pred_timer["last_time"] < 0.5:
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
+    pred_timer["last_time"] = current_time
     
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     res = detector.process(rgb)
