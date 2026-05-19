@@ -172,10 +172,6 @@ with col_left:
         },
         async_processing=True,
     )
-    
-    st.markdown('<div class="css-card"><b>Top-5 ймовірностей</b>', unsafe_allow_html=True)
-    st.bar_chart(st.session_state.last_probs.set_index('Буква'), horizontal=True, height=200)
-    st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
     st.write("### Поточний жест")
@@ -201,7 +197,7 @@ with col_right:
         st.caption("Почніть показувати жести...")
     st.markdown('</div>', unsafe_allow_html=True)
 
-st_autorefresh(interval=800, key="ui_stable_refresh")
+st_autorefresh(interval=1500, key="ui_stable_refresh")
 
 while not result_queue.empty():
     res_data = result_queue.get()
