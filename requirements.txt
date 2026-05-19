@@ -4,3 +4,5 @@ numpy
 plotly
 requests
 opencv-python-headless
+mediapipe
+tensorflow-cpu
