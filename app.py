@@ -50,9 +50,7 @@ frame_skip_counter = get_frame_counter()
 def load_resources():
     try:
         model = tf.keras.models.load_model("sign_language_lstm_model_v11_9759.h5")
-        data = np.load("ukrainian_sign_dataset/processed/training_data_lstm.npz", allow_pickle=True)
-        mapping = data['mapping'].item()
-        idx_to_letter = {int(v): str(k) for k, v in mapping.items()}
+        idx_to_letter = {0: 'Є', 1: 'І', 2: 'Ї', 3: 'А', 4: 'Б', 5: 'В', 6: 'Г', 7: 'Д', 8: 'Е', 9: 'Ж', 10: 'З', 11: 'И', 12: 'Й', 13: 'К', 14: 'Л', 15: 'М', 16: 'Н', 17: 'О', 18: 'П', 19: 'Р', 20: 'С', 21: 'Т', 22: 'У', 23: 'Ф', 24: 'Х', 25: 'Ц', 26: 'Ч', 27: 'Ш', 28: 'Щ', 29: 'Ь', 30: 'Ю', 31: 'Я', 32: 'Ґ'}
     except Exception as e:
         st.error(f"Помилка завантаження моделі: {e}")
         model, idx_to_letter = None, {i: chr(1040+i) for i in range(33)}
