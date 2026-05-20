@@ -168,7 +168,7 @@ with st.sidebar:
         st.session_state.last_probs = pd.DataFrame({'Буква': ['-'], 'Ймовірність': [0]})
         st.rerun()
     st.divider()
-    st.radio("Меню додатку", ["Розпізнавання", "Абетка"])
+    #st.radio("Меню додатку", ["Розпізнавання", "Абетка"])
 
 # Створення колонок інтерфейсу
 col_left, col_right = st.columns([2, 1], gap="large")
@@ -199,7 +199,7 @@ with col_right:
     st.write(f"Впевненість моделі: **{int(conf_val*100)}%**")
     st.markdown('</div>', unsafe_allow_html=True)
     
-    st.markdown('<div class="css-card"><b>Розпізнане слово (Історія)</b><br><br>', unsafe_allow_html=True)
+    st.markdown('<div class="css-card"><b>Розпізнане слово </b><br><br>', unsafe_allow_html=True)
     if st.session_state.history:
         h_html = ""
         for i, l in enumerate(st.session_state.history[-12:]):
@@ -208,13 +208,11 @@ with col_right:
         st.markdown(h_html, unsafe_allow_html=True)
         st.write(f"**СЛОВО:** `{''.join(st.session_state.history)}`")
     else:
-        st.caption("Покажіть жест у камеру для початку розпізнавання...")
+        st.caption(" ")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Автооновлення інтерфейсу раз на 1.5 секунди (захищає сервер від падіння)
 st_autorefresh(interval=1500, key="ui_stable_refresh")
 
-# Обробка результатів з черги (Безпечний перенос у Session State)
 processed_any = False
 while not result_queue.empty():
     try:
@@ -224,7 +222,6 @@ while not result_queue.empty():
         st.session_state.last_probs = res_data["probs"]
         
         new_letter = res_data["letter"]
-        # Додаємо літеру в історію, якщо це не порожній знак і не дубль попередньої
         if new_letter and new_letter != "—":
             if not st.session_state.history or new_letter != st.session_state.history[-1]:
                 st.session_state.history.append(new_letter)
@@ -232,6 +229,5 @@ while not result_queue.empty():
     except queue.Empty:
         break
 
-# Якщо стан змінився, робимо легкий ререндер сторінки
 if processed_any:
     st.rerun()
