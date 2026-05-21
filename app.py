@@ -46,7 +46,7 @@ frame_skip_counter = get_frame_counter()
 @st.cache_resource
 def load_resources():
     try:
-        model = tf.keras.models.load_model("sign_language_lstm_model_v11_9759.h5")
+        model = tf.keras.models.load_model("sign_language_cnn_model_v1.h5")
         idx_to_letter = {
             0: 'Є', 1: 'І', 2: 'Ї', 3: 'А', 4: 'Б', 5: 'В', 6: 'Г', 7: 'Д', 8: 'Е', 9: 'Ж', 
             10: 'З', 11: 'И', 12: 'Й', 13: 'К', 14: 'Л', 15: 'М', 16: 'Н', 17: 'О', 18: 'П', 
