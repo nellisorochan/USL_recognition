@@ -16,17 +16,20 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Ініціалізація стану сесії
 if 'history' not in st.session_state:
     st.session_state.history = []
 if 'current_letter' not in st.session_state:
-    st.session_state.current_letter = "—"
+    st.session_state.current_letter = ""
 if 'confidence' not in st.session_state:
     st.session_state.confidence = 0.0
 if 'last_probs' not in st.session_state:
     st.session_state.last_probs = pd.DataFrame({'Буква': ['-'], 'Ймовірність': [0]})
+if 'last_letter' not in st.session_state:
+    st.session_state.last_letter = ""
+if 'stability_counter' not in st.session_state:
+    st.session_state.stability_counter = 0
+STABILITY_THRESHOLD = 2
 
-# Кешовані потокобезпечні ресурси
 @st.cache_resource
 def get_result_queue():
     return queue.Queue()
@@ -36,23 +39,25 @@ def get_frame_buffer():
     return deque(maxlen=25)
 
 @st.cache_resource
+def get_live_state():
+    return {"letter": "—", "conf": 0.0}
+
+@st.cache_resource
 def get_frame_counter():
     return {"count": 0}
 
 frame_buffer = get_frame_buffer()
 result_queue = get_result_queue()
+live_state = get_live_state()
 frame_skip_counter = get_frame_counter()
 
 @st.cache_resource
 def load_resources():
     try:
-        model = tf.keras.models.load_model("sign_language_cnn_model_v1.h5")
-        idx_to_letter = {
-            0: 'Є', 1: 'І', 2: 'Ї', 3: 'А', 4: 'Б', 5: 'В', 6: 'Г', 7: 'Д', 8: 'Е', 9: 'Ж', 
-            10: 'З', 11: 'И', 12: 'Й', 13: 'К', 14: 'Л', 15: 'М', 16: 'Н', 17: 'О', 18: 'П', 
-            19: 'Р', 20: 'С', 21: 'Т', 22: 'У', 23: 'Ф', 24: 'Х', 25: 'Ц', 26: 'Ч', 27: 'Ш', 
-            28: 'Щ', 29: 'Ь', 30: 'Ю', 31: 'Я', 32: 'Ґ'
-        }
+        model = tf.keras.models.load_model("sign_language_cnn_model_v3.h5")
+        data = np.load("ukrainian_sign_dataset/processed/training_data_lstm.npz", allow_pickle=True)
+        mapping = data['mapping'].item()
+        idx_to_letter = {int(v): str(k) for k, v in mapping.items()}
     except Exception as e:
         st.error(f"Помилка завантаження моделі: {e}")
         model, idx_to_letter = None, {i: chr(1040+i) for i in range(33)}
@@ -76,23 +81,17 @@ def add_velocity(seq_array):
     velocity[1:] = filtered_velocity
     return np.concatenate([seq_array, velocity], axis=-1)
 
-# Асинхронна функція обробки кадрів webrtc
 def video_callback(frame):
     img = frame.to_ndarray(format="bgr24")
     img = cv2.flip(img, 1)
-
-    frame_skip_counter["count"] += 1
-    # Пропускаємо 3 з 4 кадрів, щоб розвантажити CPU сервера
-    if frame_skip_counter["count"] % 4 != 0:
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
-        
+    
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     res = detector.process(rgb)
 
     if res.multi_hand_landmarks:
         lm = res.multi_hand_landmarks[0]
         
-        # Нормалізація
+        # Нормалізація координат
         base = lm.landmark[0]
         coords = []
         for l in lm.landmark:
@@ -111,8 +110,8 @@ def video_callback(frame):
 
         frame_buffer.append(norm_coords)
 
-        # Перевірка заповненості буфера (Тут виправлено помилку подвійного лічильника)
-        if len(frame_buffer) == 25:
+        frame_skip_counter["count"] += 1
+        if len(frame_buffer) == 25 and frame_skip_counter["count"] % 6 == 0:
             if model:
                 seq_np = np.array(list(frame_buffer), dtype=np.float32)
                 seq_with_velocity = add_velocity(seq_np)
@@ -122,15 +121,17 @@ def video_callback(frame):
                 idx = np.argmax(prediction)
                 conf = float(prediction[idx])
                 
-                if conf > 0.82:
+                if conf > 0.9:
                     letter = idx_to_letter.get(idx, "?")
+                    live_state["letter"] = letter
+                    live_state["conf"] = conf
+                    
                     top_idx = np.argsort(prediction)[-5:][::-1]
                     probs_df = pd.DataFrame({
                         'Буква': [idx_to_letter.get(i, "?") for i in top_idx],
                         'Ймовірність': [prediction[i] * 100 for i in top_idx]
                     })
                     
-                    # Передаємо дані в UI потік безпечно через чергу
                     result_queue.put({
                         "letter": letter,
                         "conf": conf,
@@ -138,7 +139,9 @@ def video_callback(frame):
                     })
     else:
         frame_buffer.clear()
-        # Якщо руки немає в кадрі, надсилаємо сигнал скидання в інтерфейс
+        live_state["letter"] = "—"
+        live_state["conf"] = 0.0
+
         result_queue.put({
             "letter": "—",
             "conf": 0.0,
@@ -147,7 +150,6 @@ def video_callback(frame):
 
     return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# Інтерфейс програми CSS
 st.markdown("""
     <style>
     .stApp { background-color: #F0F2F6; }
@@ -158,23 +160,14 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Бокова панель (Sidebar)
 with st.sidebar:
-    st.title("Керування сесією")
-    if st.button("Очистити історію", use_container_width=True):
-        st.session_state.history = []
-        st.session_state.current_letter = "—"
-        st.session_state.confidence = 0.0
-        st.session_state.last_probs = pd.DataFrame({'Буква': ['-'], 'Ймовірність': [0]})
-        st.rerun()
-    st.divider()
-    #st.radio("Меню додатку", ["Розпізнавання", "Абетка"])
+    st.title("Розпізнавання української дактильної абетки")
+    #st.radio("Меню", ["Розпізнавання", "Абетка"])
 
-# Створення колонок інтерфейсу
 col_left, col_right = st.columns([2, 1], gap="large")
 
 with col_left:
-    st.write("### Відеопотік камери")
+    st.write("### Відео")
     webrtc_streamer(
         key="daktyl-v3",
         mode=WebRtcMode.SENDRECV,
@@ -186,48 +179,63 @@ with col_left:
         },
         async_processing=True,
     )
+    
+  #  st.markdown('<div class="css-card"><b>Toп-5 ймовірностей</b>', unsafe_allow_html=True)
+#    st.bar_chart(st.session_state.last_probs.set_index('Буква'), horizontal=True, height=200)
+#    st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
-    st.write("### Результат")
+    st.write("### Поточний жест")
     st.markdown('<div class="css-card">', unsafe_allow_html=True)
     
-    display_char = st.session_state.current_letter
+    display_char = st.session_state.current_letter if st.session_state.current_letter else "—"
     st.markdown(f'<div class="gesture-char">{display_char}</div>', unsafe_allow_html=True)
     
     conf_val = st.session_state.confidence
     st.progress(conf_val)
-    st.write(f"Впевненість моделі: **{int(conf_val*100)}%**")
+    st.write(f"Впевненість: **{int(conf_val*100)}%**")
     st.markdown('</div>', unsafe_allow_html=True)
     
-    st.markdown('<div class="css-card"><b>Розпізнане слово </b><br><br>', unsafe_allow_html=True)
+    st.markdown('<div class="css-card"><b>Історія сесії</b><br><br>', unsafe_allow_html=True)
     if st.session_state.history:
         h_html = ""
-        for i, l in enumerate(st.session_state.history[-12:]):
-            active = "history-box-active" if i == len(st.session_state.history[-12:])-1 else ""
+        for i, l in enumerate(st.session_state.history[-20:]):
+            active = "history-box-active" if i == len(st.session_state.history[-20:])-1 else ""
             h_html += f'<span class="history-box {active}">{l}</span>'
         st.markdown(h_html, unsafe_allow_html=True)
-        st.write(f"**СЛОВО:** `{''.join(st.session_state.history)}`")
+        st.write(f"**СЛОВО:** {''.join(st.session_state.history)}")
     else:
-        st.caption(" ")
+        st.caption("Почніть показувати жести...")
+    if st.button("Очистити історію", use_container_width=True):
+        st.session_state.history = []
+        st.session_state.current_letter = ""
+        st.session_state.confidence = 0.0
+        st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-st_autorefresh(interval=1500, key="ui_stable_refresh")
+st_autorefresh(interval=300, key="ui_stable_refresh")
 
-processed_any = False
 while not result_queue.empty():
-    try:
-        res_data = result_queue.get_nowait()
-        st.session_state.current_letter = res_data["letter"]
-        st.session_state.confidence = res_data["conf"]
-        st.session_state.last_probs = res_data["probs"]
-        
-        new_letter = res_data["letter"]
-        if new_letter and new_letter != "—":
+    res_data = result_queue.get()
+    new_letter = res_data["letter"]
+    
+    st.session_state.current_letter = new_letter
+    st.session_state.confidence = res_data["conf"]
+    
+    if new_letter == "—":
+        if st.session_state.last_letter != "—":
+            if st.session_state.history and st.session_state.history[-1] != " ":
+                st.session_state.history.append(" ")
+            st.session_state.last_letter = "—"
+            st.session_state.stability_counter = 0
+            
+    else:
+        if new_letter == st.session_state.last_letter:
+            st.session_state.stability_counter += 1
+        else:
+            st.session_state.stability_counter = 1
+            st.session_state.last_letter = new_letter
+            
+        if st.session_state.stability_counter == 2: 
             if not st.session_state.history or new_letter != st.session_state.history[-1]:
                 st.session_state.history.append(new_letter)
-        processed_any = True
-    except queue.Empty:
-        break
-
-if processed_any:
-    st.rerun()
